@@ -1,0 +1,1 @@
+This library modifies the official netcdf-java library to enable reading and writing netCDF files on Hadoop's file system(HDFS).
