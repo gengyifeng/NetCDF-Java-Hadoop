@@ -1,0 +1,8 @@
+ncSrc-4.2.tar.gz is the source code and netcdfAll-4.2.jar is the binary library.
+
+You can build the binary by yourself with executing "ant makeMainComplete" in cdm diretory of the source code.
+
+The API for the NetCDF file operations remain basically the same with the official library. You just use the hadoop's path like "hdfs://master:54310/user/yifeng/test.nc" instead of the local path.
+
+For more information about the API usage, please refer to http://www.unidata.ucar.edu/software/netcdf-java/.
+
