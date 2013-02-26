@@ -1,6 +1,6 @@
-ncSrc-4.2.tar.gz is the source code and netcdfAll-4.2.jar is the binary library.
+ncSrc-4.2.tar.gz is the source code and netcdfAll-4.2.jar is the binary library which is built with hadoop-core-0.20.203.0.jar
 
-You can build the binary by yourself with executing "ant makeMainComplete" in cdm diretory of the source code.
+You can build the binary by yourself by executing "ant makeMainComplete" in cdm diretory with the hadoop core library in the lib/external.
 
 The API for the NetCDF file operations remain basically the same with the official library. You just use the hadoop's path like "hdfs://master:54310/user/yifeng/test.nc" instead of the local path.
 
