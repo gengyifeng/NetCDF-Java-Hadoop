@@ -1,2 +1,3 @@
 This is patch for the netcdf-java library of version 4.3.16
 You can use this patch on the original source code from https://github.com/Unidata/thredds
+of commit "6fb6887012ed71d379cb6858824845a58363dca7"
