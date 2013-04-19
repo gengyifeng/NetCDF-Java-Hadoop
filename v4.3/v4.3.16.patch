@@ -1,0 +1,616 @@
+diff --git a/cdm/pom.xml b/cdm/pom.xml
+index be0687d..f339650 100644
+--- a/cdm/pom.xml
++++ b/cdm/pom.xml
+@@ -105,7 +105,11 @@
+       <artifactId>slf4j-jdk14</artifactId>
+       <scope>test</scope>
+     </dependency>
+-
++    <dependency>
++        <groupId>org.apache.hadoop</groupId>
++        <artifactId>hadoop-core</artifactId>
++        <version>1.0.4</version>
++    </dependency>
+   </dependencies>
+ 
+ 
+diff --git a/cdm/src/main/java/ucar/nc2/iosp/netcdf3/N3header.java b/cdm/src/main/java/ucar/nc2/iosp/netcdf3/N3header.java
+index 7f682af..88d1d06 100644
+--- a/cdm/src/main/java/ucar/nc2/iosp/netcdf3/N3header.java
++++ b/cdm/src/main/java/ucar/nc2/iosp/netcdf3/N3header.java
+@@ -585,7 +585,8 @@ public class N3header {
+ 
+     throw new IllegalArgumentException("unknown DataType == " + dt);
+   }
+-
++  boolean largeFile;
++  Formatter fout;
+   /**
+    * Write the header out, based on ncfile structures.
+    *
+@@ -599,10 +600,16 @@ public class N3header {
+   void create(ucar.unidata.io.RandomAccessFile raf, ucar.nc2.NetcdfFile ncfile, int extra, boolean largeFile, Formatter fout) throws IOException {
+     this.raf = raf;
+     this.ncfile = ncfile;
+-
+-    writeHeader(extra, largeFile, false, fout);
++    this.ncfile = ncfile;
++    this.largeFile=largeFile;
++    this.fout=fout;
++    //writeHeader(extra, largeFile, false, fout);
+   }
+-
++  
++  void writeHeader() throws IOException{ //called by writeAllVarsOnce in N3iosp.java
++	  writeHeader(0, largeFile, false, fout);
++  }
++  
+   boolean rewriteHeader(boolean largeFile, Formatter fout) throws IOException {
+     int want = sizeHeader(largeFile);
+     if (want > dataStart)
+@@ -623,8 +630,8 @@ public class N3header {
+     raf.write(largeFile ? N3header.MAGIC_LONG : N3header.MAGIC);
+ 
+     // numrecs
+-    raf.writeInt(0);
+-
++    //raf.writeInt(0);
++    raf.writeInt(numrecs);//write final numrecs;
+     // dims
+     List dims = ncfile.getDimensions();
+     int numdims = dims.size();
+diff --git a/cdm/src/main/java/ucar/nc2/iosp/netcdf3/N3iosp.java b/cdm/src/main/java/ucar/nc2/iosp/netcdf3/N3iosp.java
+index be1f48e..1d1ad9f 100644
+--- a/cdm/src/main/java/ucar/nc2/iosp/netcdf3/N3iosp.java
++++ b/cdm/src/main/java/ucar/nc2/iosp/netcdf3/N3iosp.java
+@@ -655,8 +655,8 @@ public String NC_check_name(String name) {
+ 
+     _create(raf);
+ 
+-    if (fill)
+-      fillNonRecordVariables();
++    //if (fill)
++      //fillNonRecordVariables();
+     //else
+     //  raf.setMinLength(recStart); // make sure file length is long enough, even if not written to.
+   }
+@@ -669,14 +669,20 @@ public String NC_check_name(String name) {
+   // write
+ 
+   public void writeData(Variable v2, Section section, Array values) throws java.io.IOException, InvalidRangeException {
+-    N3header.Vinfo vinfo = (N3header.Vinfo) v2.getSPobject();
++	  if (arrMap == null)
++			arrMap = new HashMap<String, Array>();
++		if (secMap == null)
++			secMap = new HashMap<String, Section>();
++		arrMap.put(v2.getName(), values);
++		secMap.put(v2.getName(), section);
++	N3header.Vinfo vinfo = (N3header.Vinfo) v2.getSPobject();
+     DataType dataType = v2.getDataType();
+ 
+     if (v2.isUnlimited()) {
+       Range firstRange = section.getRange(0);
+       setNumrecs(firstRange.last() + 1);
+     }
+-
++/*
+     if (v2 instanceof Structure) {
+       writeRecordData((Structure) v2, section, values);
+ 
+@@ -684,7 +690,7 @@ public String NC_check_name(String name) {
+       Layout layout = (!v2.isUnlimited()) ? new LayoutRegular(vinfo.begin, v2.getElementSize(), v2.getShape(), section) :
+         new LayoutRegularSegmented(vinfo.begin, v2.getElementSize(), header.recsize, v2.getShape(), section);
+       writeData(values, layout, dataType);
+-    }
++    }*/
+   }
+ 
+   private void writeRecordData(ucar.nc2.Structure s, Section section, Array values) throws java.io.IOException, ucar.ma2.InvalidRangeException {
+@@ -745,10 +751,10 @@ public String NC_check_name(String name) {
+     }
+ 
+     // extend file, handle filling
+-    if (fill)
+-      fillRecordVariables(startRec, n);
+-    else
+-      raf.setMinLength( header.calcFileSize());
++    //if (fill)
++      //fillRecordVariables(startRec, n);
++    //else
++      //raf.setMinLength( header.calcFileSize());
+   }
+ 
+   /**
+@@ -874,16 +880,24 @@ public String NC_check_name(String name) {
+ 
+   public void flush() throws java.io.IOException {
+     raf.flush();
+-    header.writeNumrecs();
+-    raf.flush();
++   //header.writeNumrecs();
++    //raf.flush();
+   }
+ 
+   public void close() throws java.io.IOException {
+-    if (raf != null) {
+-      long size = header.calcFileSize();
+-      raf.setMinLength( size);
+-      raf.close();
+-    }
++	  if(raf.isWritingFile()){
++			try {
++				writeAllVarsOnce();
++			} catch (InvalidRangeException e) {
++				e.printStackTrace();
++			}
++		}
++	  if (raf != null) {
++      //long size = header.calcFileSize();
++      //raf.setMinLength( size);
++		  raf.close();
++	  }
++    
+     raf = null;
+   }
+ 
+@@ -913,6 +927,174 @@ public String NC_check_name(String name) {
+ 
+   public String getFileTypeDescription()  { return "NetCDF-3/CDM"; }
+ 
++  protected HashMap<String, Array> arrMap;
++	protected HashMap<String, Section> secMap;
++	protected int maxNumrecs = 0;
++	protected ArrayList<Variable> unlimVars;
++
++	protected ArrayList<Long> recs;
++
++	protected ArrayList<DataType> dtypes;
++
++	/**
++	 * Cache all variables in memory and write them to HDFS once.
++	 */
++	public void writeAllVarsOnce() throws IOException, InvalidRangeException {
++		
++		header.writeHeader(); //write header;
++		// flush();
++		if (secMap == null){
++			if(!fill){
++				throw new IOException(
++				"You should give all varibles values when fill is not set");
++			}
++			return;
++		}
++			
++		for (Variable v : ncfile.getVariables()) {
++			if (v instanceof Structure) {
++				writeRecordData((Structure) v, secMap.get(v.getName()), arrMap
++						.get(v.getName()));
++			} else {
++				if (!v.isUnlimited()) {
++					N3header.Vinfo vinfo = (N3header.Vinfo) v.getSPobject();
++					Layout layout = new LayoutRegular(vinfo.begin, v
++							.getElementSize(), v.getShape(), secMap.get(v
++							.getName()));
++
++					Array arr = arrMap.get(v.getName());
++
++					if (arr == null) {
++						// if varible value is not set , fill with the default
++						// values
++						Array a = makeConstantArray(v);
++						writeData(a, layout, v.getDataType());
++						/*System.out.print("file Value:" + v.getName()
++								+ "value :" + a.toString() + "\n");*/
++
++					} else {
++						// the value size is not equal with the varible size ,is
++						// not suportted currently
++						if (arr.getSize() != v.getSize())
++							throw new IOException("Value shape for "
++									+ v.getName()
++									+ "is not equals to the defination");
++						writeData(arr, layout, v.getDataType());
++					}
++
++				} else {
++					if (unlimVars == null) {
++						unlimVars = new ArrayList<Variable>();
++						dtypes = new ArrayList<DataType>();
++						recs = new ArrayList<Long>();
++					}
++					unlimVars.add(v);
++					dtypes.add(v.getDataType());
++					recs.add(v.getSize()
++							/ (v.getDimensions().get(0).getLength()));
++					// System.out.print("size
++					// :"+v.getSize()/(v.getDimensions().get(0).getLength())+"\n");
++				}
++			}
++		}
++		if (unlimVars == null)
++			return;
++		int len = unlimVars.size();
++		//System.out.print(header.numrecs + "\n");
++		for (int i = 0; i < header.numrecs; ++i) {
++			for (int j = 0; j < len; ++j) {
++				Variable v = unlimVars.get(j);
++				Array arr = arrMap.get(v.getName());
++				DataType dataType = dtypes.get(j);
++
++				// deal with different length record varibles
++				for (int m = 0; m < recs.get(j); ++m) {
++					if (arr.hasNext()) {
++						writeObject(arr, dataType);// write true data
++					} else {
++						writeObject(v, dataType);// write fill data
++					}
++
++				}
++
++			}
++		}
++	}
++
++	protected void writeObject(Array arr, DataType dataType) throws IOException {
++		if (dataType == DataType.BYTE || dataType == DataType.CHAR) {
++			raf.write(arr.nextByte());
++			return;
++		} else if (dataType == DataType.STRING) {
++			String val = (String) arr.next();
++			if (val != null)
++				raf.write(val.getBytes("UTF-8"));
++			return;
++		} else if (dataType == DataType.SHORT) {
++			raf.writeShort(arr.nextShort());
++			return;
++		} else if (dataType == DataType.INT) {
++			raf.writeInt(arr.nextInt());
++			return;
++		} else if (dataType == DataType.FLOAT) {
++			raf.writeFloat(arr.nextFloat());
++			return;
++		} else if (dataType == DataType.DOUBLE) {
++			raf.writeDouble(arr.nextDouble());
++			return;
++		}
++		throw new IllegalStateException("dataType= " + dataType);
++	}
++
++	/**
++	 * find and set the fill value
++	 */
++	protected void writeObject(Variable v, DataType dataType)
++			throws IOException {
++		Class classType = v.getDataType().getPrimitiveClassType();
++		Attribute att = v.findAttribute("_FillValue");
++
++		Object storage = null;
++		if (classType == double.class) {
++			double storageP;
++			storageP = (att == null) ? NC_FILL_DOUBLE : att.getNumericValue()
++					.doubleValue();
++			raf.writeDouble(storageP);
++
++		} else if (classType == float.class) {
++			float storageP;
++			storageP = (att == null) ? NC_FILL_FLOAT : att.getNumericValue()
++					.floatValue();
++			raf.writeFloat(storageP);
++
++		} else if (classType == int.class) {
++			int storageP;
++			storageP = (att == null) ? NC_FILL_INT : att.getNumericValue()
++					.intValue();
++			raf.writeInt(storageP);
++
++		} else if (classType == short.class) {
++			short storageP;
++			storageP = (att == null) ? NC_FILL_SHORT : att.getNumericValue()
++					.shortValue();
++			raf.writeShort(storageP);
++
++		} else if (classType == byte.class) {
++			byte storageP;
++			storageP = (att == null) ? NC_FILL_BYTE : att.getNumericValue()
++					.byteValue();
++			raf.writeByte(storageP);
++
++		} else if (classType == char.class) {
++			char storageP;
++			storageP = (att != null) && (att.getStringValue().length() > 0) ? att
++					.getStringValue().charAt(0)
++					: NC_FILL_CHAR;
++			raf.write(storageP);
++		}
++
++	}
++  
+   ////////////////////////////////////////////////////////////////////////////////////////////////////
+   // stuff we need the subclass to implement
+ 
+diff --git a/cdm/src/main/java/ucar/nc2/iosp/netcdf3/N3raf.java b/cdm/src/main/java/ucar/nc2/iosp/netcdf3/N3raf.java
+index 28431d0..ae60b49 100644
+--- a/cdm/src/main/java/ucar/nc2/iosp/netcdf3/N3raf.java
++++ b/cdm/src/main/java/ucar/nc2/iosp/netcdf3/N3raf.java
+@@ -110,7 +110,7 @@ public class N3raf extends N3iosp  {
+       IndexIterator ii = values.getIndexIterator();
+       while (index.hasNext()) {
+         Layout.Chunk chunk = index.next();
+-        raf.seek ( chunk.getSrcPos());
++        raf.seekForWrite ( chunk.getSrcPos());
+         for (int k=0; k<chunk.getNelems(); k++)
+           raf.write( ii.getByteNext());
+       }
+@@ -120,7 +120,7 @@ public class N3raf extends N3iosp  {
+       IndexIterator ii = values.getIndexIterator();
+       while (index.hasNext()) {
+         Layout.Chunk chunk = index.next();
+-        raf.seek ( chunk.getSrcPos());
++        raf.seekForWrite ( chunk.getSrcPos());
+         for (int k=0; k<chunk.getNelems(); k++) {
+           String val = (String) ii.getObjectNext();
+           if (val != null) raf.write( val.getBytes(CDM.utf8Charset)); // LOOK ??
+@@ -132,7 +132,7 @@ public class N3raf extends N3iosp  {
+       IndexIterator ii = values.getIndexIterator();
+       while (index.hasNext()) {
+         Layout.Chunk chunk = index.next();
+-        raf.seek ( chunk.getSrcPos());
++        raf.seekForWrite ( chunk.getSrcPos());
+         for (int k=0; k<chunk.getNelems(); k++)
+           raf.writeShort( ii.getShortNext());
+       }
+@@ -142,7 +142,7 @@ public class N3raf extends N3iosp  {
+       IndexIterator ii = values.getIndexIterator();
+       while (index.hasNext()) {
+         Layout.Chunk chunk = index.next();
+-        raf.seek ( chunk.getSrcPos());
++        raf.seekForWrite ( chunk.getSrcPos());
+         for (int k=0; k<chunk.getNelems(); k++)
+           raf.writeInt( ii.getIntNext());
+       }
+@@ -152,7 +152,7 @@ public class N3raf extends N3iosp  {
+       IndexIterator ii = values.getIndexIterator();
+       while (index.hasNext()) {
+         Layout.Chunk chunk = index.next();
+-        raf.seek ( chunk.getSrcPos());
++        raf.seekForWrite ( chunk.getSrcPos());
+         for (int k=0; k<chunk.getNelems(); k++)
+           raf.writeFloat( ii.getFloatNext());
+       }
+@@ -162,7 +162,7 @@ public class N3raf extends N3iosp  {
+       IndexIterator ii = values.getIndexIterator();
+       while (index.hasNext()) {
+         Layout.Chunk chunk = index.next();
+-        raf.seek ( chunk.getSrcPos());
++        raf.seekForWrite ( chunk.getSrcPos());
+         for (int k=0; k<chunk.getNelems(); k++)
+           raf.writeDouble( ii.getDoubleNext());
+       }
+diff --git a/cdm/src/main/java/ucar/unidata/io/RandomAccessFile.java b/cdm/src/main/java/ucar/unidata/io/RandomAccessFile.java
+index fb59804..fbe160f 100644
+--- a/cdm/src/main/java/ucar/unidata/io/RandomAccessFile.java
++++ b/cdm/src/main/java/ucar/unidata/io/RandomAccessFile.java
+@@ -44,7 +44,12 @@ import java.util.concurrent.atomic.AtomicInteger;
+ import java.util.concurrent.atomic.AtomicLong;
+ import java.nio.channels.WritableByteChannel;
+ 
+-
++import org.apache.hadoop.conf.Configuration;
++import org.apache.hadoop.fs.FSDataInputStream;
++import org.apache.hadoop.fs.FSDataOutputStream;
++import org.apache.hadoop.fs.FileStatus;
++import org.apache.hadoop.fs.FileSystem;
++import org.apache.hadoop.fs.Path;
+ /**
+  * A buffered drop-in replacement for java.io.RandomAccessFile.
+  * Instances of this class realise substantial speed increases over
+@@ -175,9 +180,21 @@ public class RandomAccessFile implements DataInput, DataOutput, FileCacheable {
+    * The underlying java.io.RandomAccessFile.
+    */
+   protected java.io.RandomAccessFile file;
++  protected FSDataInputStream hdfsInFile;
++  protected FSDataOutputStream hdfsOutFile;
++  protected FileSystem fs;
+   protected java.nio.channels.FileChannel fileChannel;
+ 
+   /**
++   * test if the file is on hdfs for writing
++   */
++  public boolean isWritingFile(){
++	  if(hdfsOutFile==null)
++		  return false;
++	  else
++		  return true;
++  }
++  /**
+    * The offset in bytes from the file start, of the next read or
+    * write operation.
+    */
+@@ -274,8 +291,13 @@ public class RandomAccessFile implements DataInput, DataOutput, FileCacheable {
+       allFiles.add(location);
+     }
+ 
+-    this.file = new java.io.RandomAccessFile(location, mode);
+-    this.readonly = mode.equals("r");
++    Configuration conf = new Configuration();  
++	fs = FileSystem.get(java.net.URI.create(location), conf);
++	if(mode.toLowerCase().contains("w")){
++		this.hdfsOutFile=fs.create(new Path(location));
++    }
++    this.hdfsInFile = fs.open(new Path(location));
++    this.readonly = true;
+     init(bufferSize);
+ 
+     if (debugLeaks) {
+@@ -293,7 +315,7 @@ public class RandomAccessFile implements DataInput, DataOutput, FileCacheable {
+   public java.io.RandomAccessFile getRandomAccessFile() {
+     return this.file;
+   }
+-
++  
+   private void init(int bufferSize) {
+     // Initialise the buffer
+     bufferStart = 0;
+@@ -339,12 +361,16 @@ public class RandomAccessFile implements DataInput, DataOutput, FileCacheable {
+       if (showOpen) System.out.println("  close " + location);
+     }
+ 
+-    if (file == null)
+-      return;
++    /*if (file == null)
++      return;*/
+ 
+     // If we are writing and the buffer has been modified, flush the contents
+     // of the buffer.
+-    flush();
++    if(hdfsOutFile!=null){
++    	flush();
++    	hdfsOutFile.close();
++    }
++  
+ 
+     /*
+     if (!readonly && bufferModified) {
+@@ -355,15 +381,22 @@ public class RandomAccessFile implements DataInput, DataOutput, FileCacheable {
+     // may need to extend file, in case no fill is being used
+     // may need to truncate file in case overwriting a longer file
+     // use only if minLength is set (by N3iosp)
+-    long fileSize = file.length();
++    //long fileSize = file.length();
++    long fileSize = fs.getFileStatus(new Path(location)).getLen();
+     if (!readonly && (minLength != 0) && (minLength != fileSize)) {
+       file.setLength(minLength);
+       // System.out.println("TRUNCATE!!! minlength="+minLength);
+     }
+ 
+     // Close the underlying file object.
+-    file.close();
+-    file = null;  // help the gc
++    
++   
++    //file.close();
++    if(hdfsInFile!=null)
++    	hdfsInFile.close();
++    
++    fs.close();
++    //file = null;  // help the gc
+   }
+ 
+   /* @Override
+@@ -410,7 +443,38 @@ public class RandomAccessFile implements DataInput, DataOutput, FileCacheable {
+     // need new buffer, starting at pos
+     readBuffer(pos);
+   }
++  /**
++   * Set the position in the file for the HDFS write. It is used to maintain buffer variables. 
++   * All seek() in write should be replaced by seekForWrite();
++   * Compared to seek(),it does not read ahead to fill the buffer, but simply reset the buffer.
++   */
++  public void seekForWrite(long pos) throws IOException{
++	  //System.out.print("Seek to "+pos+"\n");
++	  if ((pos >= bufferStart) && (pos < dataEnd)) {
++	      filePosition = pos;
++	      return;
++	    }
++	    // need new buffer, starting at pos
++	    writeBuffer(pos);
++  }
++  /**
++   * flush the buffer, and simply reset it.
++   */
++  protected void writeBuffer(long pos) throws IOException {
++	    // If the current buffer is modified, write it to disk.
++	    if (bufferModified) {
++	      flush();
++	    }
+ 
++	    bufferStart = pos;
++	    filePosition = pos;
++	      dataSize = 0;
++	      endOfFile = true;
++
++	    // Cache the position of the buffer end.
++	    dataEnd = bufferStart + dataSize;
++	  }
++  
+   protected void readBuffer(long pos) throws IOException {
+     // If the current buffer is modified, write it to disk.
+     if (bufferModified) {
+@@ -461,7 +525,8 @@ public class RandomAccessFile implements DataInput, DataOutput, FileCacheable {
+    * @throws IOException if an I/O error occurrs.
+    */
+   public long length() throws IOException {
+-    long fileLength = file.length();
++    //long fileLength = file.length();
++    long fileLength = fs.getFileStatus(new Path(location)).getLen();
+     if (fileLength < dataEnd) {
+       return dataEnd;
+     } else {
+@@ -492,12 +557,15 @@ public class RandomAccessFile implements DataInput, DataOutput, FileCacheable {
+    * @throws IOException if an I/O error occurs.
+    */
+   public void flush() throws IOException {
+-    if (bufferModified) {
+-      file.seek(bufferStart);
+-      file.write(buffer, 0, dataSize);
+-      //System.out.println("--flush at "+bufferStart+" dataSize= "+dataSize+ " filePosition= "+filePosition);
+-      bufferModified = false;
+-    }
++	 if(hdfsOutFile!=null){
++		 if (bufferModified) {
++			 //file.seek(bufferStart);
++			 //file.write(buffer, 0, dataSize);
++			 hdfsOutFile.write(buffer, 0, dataSize);
++			 //System.out.println("--flush at "+bufferStart+" dataSize= "+dataSize+ " filePosition= "+filePosition);
++			 bufferModified = false;
++		 }
++	}
+ 
+     /* check min length
+     if (!readonly && (minLength != 0) && (minLength != file.length())) {
+@@ -660,8 +728,10 @@ public class RandomAccessFile implements DataInput, DataOutput, FileCacheable {
+    * @throws IOException on io error
+    */
+   protected int read_(long pos, byte[] b, int offset, int len) throws IOException {
+-    file.seek(pos);
+-    int n = file.read(b, offset, len);
++    //file.seek(pos);
++    //int n = file.read(b, offset, len);
++	hdfsInFile.seek(pos);
++	int n= hdfsInFile.read(b, offset, len);
+     if (debugAccess) {
+       if (showRead)
+         System.out.println(" **read_ " + location + " = " + len + " bytes at " + pos + "; block = " + (pos / buffer.length));
+@@ -833,7 +903,8 @@ public class RandomAccessFile implements DataInput, DataOutput, FileCacheable {
+ 
+         // ...or do another seek to get a new buffer, and start again...
+       } else {
+-        seek(filePosition);
++        //seek(filePosition);
++    	seekForWrite(filePosition);
+         write(b);
+       }
+     }
+@@ -874,7 +945,8 @@ public class RandomAccessFile implements DataInput, DataOutput, FileCacheable {
+       // the new buffer.
+       if (copyLength < len) {
+         //System.out.println("--need more "+copyLength+" "+len+" space= "+spaceInBuffer);
+-        seek(filePosition);   // triggers a flush
++        //seek(filePosition);   // triggers a flush
++        seekForWrite(filePosition);   // triggers a flush
+         System.arraycopy(b, off + copyLength, buffer, (int) (filePosition - bufferStart), len - copyLength);
+         bufferModified = true;
+         long myDataEnd = filePosition + (len - copyLength);
+@@ -890,8 +962,9 @@ public class RandomAccessFile implements DataInput, DataOutput, FileCacheable {
+       if (bufferModified) {
+         flush();
+       }
+-      file.seek(filePosition);  // moved per Steve Cerruti; Jan 14, 2005
+-      file.write(b, off, len);
++      //file.seek(filePosition);  // moved per Steve Cerruti; Jan 14, 2005
++      //file.write(b, off, len);
++      hdfsOutFile.write(b,off,len);
+       //System.out.println("--write at "+filePosition+" "+len);
+ 
+       filePosition += len;
